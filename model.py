@@ -112,6 +112,11 @@ class cyclegan(object):
         self.testB = self.generator(self.test_A, self.options, True, name="generatorA2B")
         self.testA = self.generator(self.test_B, self.options, True, name="generatorB2A")
 
+        self.testA_discriminator = self.discriminator(self.test_A, self.options, reuse=True, name="discriminatorA")
+        self.testB_discriminator = self.discriminator(self.test_B, self.options, reuse=True, name="discriminatorB")
+        self.testA_discriminator_value = self.criterionGAN(self.testA_discriminator, tf.ones_like(self.testA_discriminator))
+        self.testB_discriminator_value = self.criterionGAN(self.testB_discriminator, tf.ones_like(self.testB_discriminator))
+
         t_vars = tf.trainable_variables()
         self.d_vars = [var for var in t_vars if 'discriminator' in var.name]
         self.g_vars = [var for var in t_vars if 'generator' in var.name]
@@ -132,10 +137,11 @@ class cyclegan(object):
         counter = 1
         start_time = time.time()
 
-        if args.continue_train and self.load(args.checkpoint_dir):
-            print(" [*] Load SUCCESS")
-        else:
-            print(" [!] Load failed...")
+        if args.continue_train:
+            if self.load(args.checkpoint_dir):
+                print(" [*] Load SUCCESS")
+            else:
+                print(" [!] Load failed...")
 
         for epoch in range(args.epoch):
             dataA = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainA'))
@@ -261,3 +267,51 @@ class cyclegan(object):
                 '..' + os.path.sep + image_path)))
             index.write("</tr>")
         index.close()
+
+    def test_discriminator_values(self, args):
+        """Test cyclegan"""
+        init_op = tf.global_variables_initializer()
+        self.sess.run(init_op)
+        if args.which_direction == 'AtoB':
+            sample_files = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainA'))
+        elif args.which_direction == 'BtoA':
+            sample_files = glob('./datasets/{}/*.*'.format(self.dataset_dir + '/trainB'))
+        else:
+            raise Exception('--which_direction must be AtoB or BtoA')
+
+        if self.load(args.checkpoint_dir):
+            print(" [*] Load SUCCESS")
+        else:
+            print(" [!] Load failed...")
+
+        # write html for visual comparison
+        index_path = os.path.join(args.test_dir, '{0}_index.html'.format(args.which_direction))
+        index = open(index_path, "w")
+        index.write("<html><body><table><tr>")
+        index.write("<th>name</th><th>input</th><th>output</th></tr>")
+
+        out_var, in_var, out_val = (self.testB, self.test_A, self.testA_discriminator_value) if args.which_direction == 'AtoB' else (
+            self.testA, self.test_B, self.testB_discriminator_value )
+        ret = []
+        for sample_file in sample_files:
+            print('Processing image: ' + sample_file)
+            sample_image = [load_test_data(sample_file, args.fine_size)]
+            sample_image = np.array(sample_image).astype(np.float32)
+            image_path = os.path.join(args.test_dir,
+                                      '{0}_{1}'.format(args.which_direction, os.path.basename(sample_file)))
+            fake_img, discriminator_value = self.sess.run([out_var, out_val], feed_dict={in_var: sample_image})
+            ret.append((sample_file, discriminator_value))
+            save_images(fake_img, [1, 1], image_path)
+            index.write("<td>%s %s</td>" % (os.path.basename(image_path), discriminator_value))
+            index.write("<td><img src='%s'></td>" % (sample_file if os.path.isabs(sample_file) else (
+                '..' + os.path.sep + sample_file)))
+            index.write("<td><img src='%s'></td>" % (image_path if os.path.isabs(image_path) else (
+                '..' + os.path.sep + image_path)))
+            index.write("</tr>")
+        index.close()
+        fil = open(args.which_direction+"-discriminator-values.txt", 'w')
+        for f, val in ret:
+            fil.write(f+','+str(val)+ '\n')
+        fil.close()
+        print ret
+

@@ -46,8 +46,13 @@ def main(_):
     tfconfig.gpu_options.allow_growth = True
     with tf.Session(config=tfconfig) as sess:
         model = cyclegan(sess, args)
-        model.train(args) if args.phase == 'train' \
-            else model.test(args)
+        if args.phase == 'train':
+            model.train(args)
+        elif args.phase == 'test':
+            model.test(args)
+        elif args.phase == 'discriminator_values':
+            model.test_discriminator_values(args)
 
 if __name__ == '__main__':
     tf.app.run()
+
